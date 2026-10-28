@@ -1,0 +1,22 @@
+Store information
+
+Field	Giá trị
+Admin user email	admin@yourStore.com (hoặc email bạn muốn)
+Admin user password	đặt tuỳ ý, vd Admin@123
+
+Country	giữ nguyên hoặc chọn Vietnam
+Create sample data	tick (để có sản phẩm test)
+Subscribe to newsletter	bỏ tick
+
+Database information
+
+Field	Giá trị
+Database	Microsoft SQL Server
+Create database if it doesn’t exist	tick
+Enter raw connection string	để trống (dùng các ô bên dưới)
+Server name	nopcommerce_database
+Database name	nopcommerce
+Use integrated Windows authentication	để trống
+SQL Username	sa
+SQL Password	nopCommerce_Pass123
+Specify custom collation	để trống
