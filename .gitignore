@@ -1,6 +1,8 @@
-# Dependencies
-node_modules/
+# Dependencies & Configurations (tránh conflict cấu hình cá nhân)
+package.json
 package-lock.json
+playwright.config.js
+node_modules/
 
 # Chrome persistent profiles (session cá nhân của từng thành viên)
 **/.chrome_profile/
