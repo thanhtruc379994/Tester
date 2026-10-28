@@ -31,3 +31,4 @@ yarn-debug.log
 ehthumbs.db
 Thumbs.db
 playwright-report/
+test-results/
