@@ -1,0 +1,30 @@
+services:
+  nopcommerce_web:
+    # Build trực tiếp từ GitHub (repo có sẵn Dockerfile ở root).
+    # Muốn bản ổn định thì đổi "develop" thành tag, vd: #release-4.80.3
+    build: https://github.com/nopSolutions/nopCommerce.git#develop
+    container_name: nopcommerce_web
+    ports:
+      - "8080:80"
+    depends_on:
+      - nopcommerce_database
+    volumes:
+      - nop_data:/app/App_Data
+    restart: unless-stopped
+
+  nopcommerce_database:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: nopcommerce_database
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "nopCommerce_Pass123"
+      MSSQL_PID: "Express"
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+    restart: unless-stopped
+
+volumes:
+  nop_data:
+  mssql_data:
