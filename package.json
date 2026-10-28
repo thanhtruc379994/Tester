@@ -1,0 +1,33 @@
+{
+  "name": "group13_nopcommerce",
+  "version": "1.0.0",
+  "description": "**NHÓM 13\r Test   \r https://docs.google.com/document/d/1xjgDQCwnMpTTQ2oFeRyUmuW6jyUd531HSVvjO9PTbmY/edit?tab=t.0 (tasks)   \r https://docs.google.com/spreadsheets/d/1gtRr_YCvtCsKLBbO4SRrAKBNgwNqN8hV3cpMLKdm5ew/edit?gid=2009482914#gid=2009482914 (sheets)",
+  "keywords": [],
+  "homepage": "https://github.com/thanhtruc379994/Tester#readme",
+  "bugs": {
+    "url": "https://github.com/thanhtruc379994/Tester/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thanhtruc379994/Tester.git"
+  },
+  "type": "commonjs",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.5"
+  },
+  "dependencies": {
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}
