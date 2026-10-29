@@ -82,15 +82,12 @@ async function fill(page, selectors, value) {
     let l = typeof selectors === 'string' ? page.locator(selectors).first() : selectors.first();
     await expect(l).toBeVisible();
 
-    // Nếu là ô nhập ngày tháng HTML5 (type=date hoặc datetime-local)
+    // Nếu là ô nhập ngày tháng HTML5 (type=date), bắt buộc phải có định dạng YYYY-MM-DD
     const type = await l.getAttribute('type').catch(() => 'text');
     if (type === 'date' || type === 'datetime-local') {
         const parts = value.split('/');
         if (parts.length === 3) {
             value = `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
-        }
-        if (type === 'datetime-local' && !value.includes('T')) {
-            value = `${value}T00:00`;
         }
     }
     await l.fill(value);
@@ -132,53 +129,6 @@ async function download(page, action, extension) {
 
 let isInitialLoggedIn = false;
 
-async function ensureShipments(page) {
-    await openList(page, 'ship');
-    await page.waitForTimeout(1000);
-    const rows = page.locator('#shipments-grid tbody tr').filter({ hasNotText: /No data available|No matching records|Loading/i });
-    const count = await rows.count();
-    if (count >= 2) {
-        return;
-    }
-
-    console.log('\n📦 [Data Setup] Đang tự động tạo dữ liệu shipments để kiểm thử...');
-    for (const orderId of [1, 2, 4, 5]) {
-        try {
-            await page.goto(`${BASE_URL}/Admin/Order/AddShipment/${orderId}`);
-            await handleCloudflare(page);
-            if (await page.locator('#TrackingNumber').isVisible({ timeout: 2500 }).catch(() => false)) {
-                await page.locator('#TrackingNumber').fill(orderId === 1 ? 'VNPOST_123456' : `VNPOST_${orderId}0000`);
-                await page.locator('#AdminComment').fill(`Shipment tự động cho order ${orderId}`);
-                const saveBtn = page.locator('button[name="save"], button.btn-primary:has-text("Save")').first();
-                if (await saveBtn.isVisible().catch(() => false)) {
-                    await saveBtn.click();
-                    await page.waitForLoadState('networkidle').catch(() => {});
-                }
-            }
-        } catch (e) {}
-    }
-
-    // Nếu vẫn chưa đủ, thêm sản phẩm vào order 1 rồi tạo tiếp shipment
-    await openList(page, 'ship');
-    const updatedCount = await page.locator('#shipments-grid tbody tr').filter({ hasNotText: /No data available|No matching records|Loading/i }).count();
-    if (updatedCount < 2) {
-        try {
-            await page.goto(`${BASE_URL}/Admin/Order/AddProductToOrderDetails?orderId=1&productId=3`);
-            if (await page.locator('#Quantity').isVisible({ timeout: 3000 }).catch(() => false)) {
-                await page.locator('#Quantity').fill('5');
-                await page.locator('button.btn-primary:has-text("Add product")').click();
-                await page.waitForLoadState('networkidle').catch(() => {});
-            }
-            await page.goto(`${BASE_URL}/Admin/Order/AddShipment/1`);
-            if (await page.locator('#TrackingNumber').isVisible({ timeout: 3000 }).catch(() => false)) {
-                await page.locator('#TrackingNumber').fill('VNPOST_123456');
-                await page.locator('button[name="save"], button.btn-primary:has-text("Save")').first().click();
-                await page.waitForLoadState('networkidle').catch(() => {});
-            }
-        } catch (e) {}
-    }
-}
-
 test.describe('Admin - Shipments', () => {
 
     test.setTimeout(120000);
@@ -187,7 +137,6 @@ test.describe('Admin - Shipments', () => {
         // Chỉ thực hiện đăng nhập 1 lần duy nhất từ đầu cho tất cả các test case
         if (!isInitialLoggedIn) {
             await login(page);
-            await ensureShipments(page);
             isInitialLoggedIn = true;
         }
     });
@@ -280,10 +229,8 @@ test.describe('Admin - Shipments', () => {
         await search(page, 'ship');
 
         const rows = page.locator('#shipments-grid tbody tr').filter({ hasNotText: /No data available|No matching records/i });
-        if (await rows.count() > 0) {
-            // Xem chi tiết chuyến hàng để xác nhận địa chỉ người nhận thuộc United States
-            await firstDetail(page, 'ship');
-            await expect(page.locator('body')).toContainText(/United States|US/i);
+        for (const row of await rows.all()) {
+            await expect(row).toContainText(/United States|US/i);
         }
     });
 
@@ -378,7 +325,7 @@ test.describe('Admin - Shipments', () => {
 
         // Expected: 1. Điều hướng vào trang chi tiết chuyến hàng (View shipment details).
         await expect(page).toHaveURL(/\/Admin\/Order\/ShipmentDetails/i);
-        await expect(page.locator('.content-header h1, h1.float-left, .content-header').first()).toContainText(/Shipment details|View shipment details/i);
+        await expect(page.locator('.content-header, h1')).toContainText(/Shipment details|View shipment details/i);
     });
 
     // admin_ship_12: Kiểm tra cập nhật trạng thái 'Set as shipped' có nhập mã vận đơn Tracking number hợp lệ
@@ -485,54 +432,42 @@ test.describe('Admin - Shipments', () => {
         await openList(page, 'ship');
         await firstDetail(page, 'ship');
 
-        // Đảm bảo chuyến hàng đã shipped/delivered để xuất hiện trường DeliveryDate nếu cần
-        const setShipped = page.locator('button[name="setasshipped"], #setasshipped');
-        if (await setShipped.isVisible({ timeout: 1500 }).catch(() => false)) {
-            await setShipped.click();
-            const cf1 = page.locator('#setasshipped-action-confirmation-submit-button');
-            if (await cf1.isVisible({ timeout: 1500 }).catch(() => false)) await cf1.click();
-            await page.waitForTimeout(1000);
-        }
-        const setDelivered = page.locator('button[name="setasdelivered"], #setasdelivered');
-        if (await setDelivered.isVisible({ timeout: 1500 }).catch(() => false)) {
-            await setDelivered.click();
-            const cf2 = page.locator('#setasdelivered-action-confirmation-submit-button');
-            if (await cf2.isVisible({ timeout: 1500 }).catch(() => false)) await cf2.click();
-            await page.waitForTimeout(1000);
-        }
-
         // 1. Nhập Date ready for pickup = '2026-10-20'
         const editPickupBtn = page.locator('#btnEditReadyForPickupDate');
-        if (await editPickupBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+        if (await editPickupBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
             await editPickupBtn.click();
         }
         const pickupInput = page.locator('#ReadyForPickupDateUtc, input[name*="ReadyForPickup"]');
-        if (await pickupInput.isVisible({ timeout: 1500 }).catch(() => false)) {
+        if (await pickupInput.isVisible({ timeout: 2000 }).catch(() => false)) {
             await fill(page, pickupInput, '2026-10-20');
             const savePickupBtn = page.locator('#btnSaveReadyForPickupDate');
             if (await savePickupBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
                 await savePickupBtn.click();
-                await page.waitForTimeout(1000);
             }
         }
 
         // 2. Nhập Date delivered = '2026-10-22'
         const editDeliveryBtn = page.locator('#btnEditDeliveryDate');
-        if (await editDeliveryBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+        if (await editDeliveryBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
             await editDeliveryBtn.click();
         }
         const deliveryInput = page.locator('#DeliveryDateUtc, input[name*="DeliveryDate"]');
-        if (await deliveryInput.isVisible({ timeout: 1500 }).catch(() => false)) {
+        if (await deliveryInput.isVisible({ timeout: 2000 }).catch(() => false)) {
             await fill(page, deliveryInput, '2026-10-22');
             const saveDeliveryBtn = page.locator('#btnSaveDeliveryDate');
             if (await saveDeliveryBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
                 await saveDeliveryBtn.click();
-                await page.waitForTimeout(1000);
             }
         }
 
-        // Expected: 1. Hiển thị thông báo hoặc dữ liệu cập nhật
-        await expect(page.locator('body')).toContainText(/Delivered|Delivery date|2026-10-22|10\/22\/2026|Shipment/i);
+        // 3. Click nút [Save]
+        const mainSave = page.locator('button[name="save"], #save-shipment, button.btn-primary:has-text("Save")').first();
+        if (await mainSave.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await mainSave.click();
+        }
+
+        // Expected: 1. Hiển thị thông báo 'Shipment has been updated successfully' và dữ liệu hiển Date ready for pickup = '2026-10-20' và Date delivered = '2026-10-22'
+        await expect(page.locator('.alert-success, .alert, body')).toContainText(/Shipment has been updated successfully|updated/i);
     });
 
     // admin_ship_16: Kiểm tra cập nhật Date ready for pickup và Date delivered không hợp lệ (Date ready for pickup > Date delivered)
@@ -548,11 +483,11 @@ test.describe('Admin - Shipments', () => {
 
         // 1. Tại chuyến hàng, nhập Date ready for pickup = '2026-10-22'
         const editPickupBtn = page.locator('#btnEditReadyForPickupDate');
-        if (await editPickupBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+        if (await editPickupBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
             await editPickupBtn.click();
         }
         const pickupInput = page.locator('#ReadyForPickupDateUtc, input[name*="ReadyForPickup"]');
-        if (await pickupInput.isVisible({ timeout: 1500 }).catch(() => false)) {
+        if (await pickupInput.isVisible({ timeout: 2000 }).catch(() => false)) {
             await fill(page, pickupInput, '2026-10-22');
             const savePickupBtn = page.locator('#btnSaveReadyForPickupDate');
             if (await savePickupBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
@@ -562,16 +497,22 @@ test.describe('Admin - Shipments', () => {
 
         // 2. Nhập Date delivered = '2026-10-20'
         const editDeliveryBtn = page.locator('#btnEditDeliveryDate');
-        if (await editDeliveryBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+        if (await editDeliveryBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
             await editDeliveryBtn.click();
         }
         const deliveryInput = page.locator('#DeliveryDateUtc, input[name*="DeliveryDate"]');
-        if (await deliveryInput.isVisible({ timeout: 1500 }).catch(() => false)) {
+        if (await deliveryInput.isVisible({ timeout: 2000 }).catch(() => false)) {
             await fill(page, deliveryInput, '2026-10-20');
             const saveDeliveryBtn = page.locator('#btnSaveDeliveryDate');
             if (await saveDeliveryBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
                 await saveDeliveryBtn.click();
             }
+        }
+
+        // 3. Click nút [Save]
+        const mainSave = page.locator('button[name="save"], #save-shipment, button.btn-primary:has-text("Save")').first();
+        if (await mainSave.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await mainSave.click();
         }
 
         // Expected: 1. Hệ thống hiển thị cảnh báo lỗi logic: Ngày sẵn sàng lấy hàng không thể lớn hơn ngày giao hàng
@@ -617,7 +558,7 @@ test.describe('Admin - Shipments', () => {
         await firstDetail(page, 'ship');
 
         // 1. Tại trang chi tiết chuyến hàng, click nút [Print packaging slip]
-        const printBtn = page.locator('a:has-text("Print packaging slip"), button:has-text("Print packaging slip"), button[name="pdf-packaging-slip"], #pdf-packaging-slip').first();
+        const printBtn = page.locator('button[name="pdf-packaging-slip"], a.btn:has-text("Print packaging slip"), button:has-text("Print packaging slip"), #pdf-packaging-slip').first();
         await expect(printBtn).toBeVisible();
 
         const [download] = await Promise.all([
@@ -648,13 +589,8 @@ test.describe('Admin - Shipments', () => {
             await checkboxes.nth(0).click();
         }
 
-        // 2. Click nút [Print packaging slips (selected)] (mở dropdown nếu có)
-        const dropdownToggle = page.locator('.btn-group:has(#exportpackagingslips-selected) button.dropdown-toggle, .btn-group:has-text("Print packaging slips") button.dropdown-toggle').first();
-        if (await dropdownToggle.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await dropdownToggle.click();
-        }
-
-        const printSelectedBtn = page.locator('#exportpackagingslips-selected, button[name="pdf-packaging-slip-selected"], #pdf-packaging-slip-selected, button:has-text("Print packaging slips (selected)")').first();
+        // 2. Click nút [Print packaging slips (selected)]
+        const printSelectedBtn = page.locator('button[name="pdf-packaging-slip-selected"], #pdf-packaging-slip-selected, button:has-text("Print packaging slips (selected)")').first();
         await expect(printSelectedBtn).toBeVisible();
 
         const [download] = await Promise.all([
@@ -698,12 +634,9 @@ test.describe('Admin - Shipments', () => {
         // Expected: 1. Hiển thị popup xác nhận
         expect(dialogAppeared).toBe(true);
 
-        // Expected: 2. Chuyến hàng bị xóa khỏi hệ thống. Quay lại danh sách / đơn hàng với thông báo 'The shipment has been deleted successfully'
-        await expect(page).toHaveURL(/\/Admin\/Order\/(ShipmentList|Edit)/i);
-        await expect(page.locator('.alert-success').first()).toContainText(/The shipment has been deleted successfully|deleted/i);
-
-        // Tự động khôi phục dữ liệu shipment cho các lần chạy test tiếp theo
-        await ensureShipments(page);
+        // Expected: 2. Chuyến hàng bị xóa khỏi hệ thống. Quay lại danh sách với thông báo 'The shipment has been deleted successfully'
+        await expect(page).toHaveURL(/\/Admin\/Order\/ShipmentList/i);
+        await expect(page.locator('.alert-success, body')).toContainText(/The shipment has been deleted successfully|deleted/i);
     });
 
 });
