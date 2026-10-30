@@ -30,3 +30,6 @@ yarn-debug.log
 .Trashes
 ehthumbs.db
 Thumbs.db
+# Playwright reports
+/playwright-report/
+/test-results/
