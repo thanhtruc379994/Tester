@@ -2,7 +2,7 @@
 // 30 test tự động cho chức năng Search Product (Admin > Catalog > Products)
 import {test, expect} from '@playwright/test';
 
-const BASE = 'http://localhost:8080';          // đổi thành https://admin-demo.nopcommerce.com nếu chạy trên demo
+const BASE = 'http://localhost:8080';
 const G = '#products-grid';
 const ADMIN_EMAIL = 'admin@yourStore.com'
 const ADMIN_PASSWORD = 'Admin@123'
@@ -475,19 +475,7 @@ test.describe('Admin - Search Product', () => {
         }
     });
 
-    // Search_product_paging_next_40: Kiểm tra chuyển sang trang kế tiếp
-    // Step: 1. Không lọc, click Search  2. Click Next
-    // Expected: 1. Trang 2 hiển thị '16-30 of N items'; trang 2 được đánh dấu active
-    // test('Search_product_paging_next_40 - Kiểm tra chuyển sang trang kế tiếp', async ({page}) => {
-    //     await openProducts(page);
-    //     await search(page);
-    //     const next = page.locator(`${G}_next`);
-    //     await expect(next).not.toHaveClass(/disabled/);
-    //     await next.click();
-    //     await waitGridLoaded(page);
-    //     await expect(page.locator(`${G}_info`)).toContainText(/16\s*-\s*30/);
-    //     await expect(page.locator(`${G}_paginate .paginate_button.active, ${G}_paginate .active`).first()).toContainText('2');
-    // });
+
 
     test('Search_product_paging_next_40 - Kiểm tra chuyển sang trang kế tiếp', async ({ page }) => {
         await openProducts(page);
