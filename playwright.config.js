@@ -3,6 +3,7 @@ const { defineConfig } = require('@playwright/test');
 module.exports = defineConfig({
     use: {
         headless: false,
+        channel: 'chrome',
         launchOptions: {
             slowMo: 500
         }
