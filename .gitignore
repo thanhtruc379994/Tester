@@ -1,3 +1,32 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+yarn-debug.log
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+.chrome_profile/
+# IDE (WebStorm / IntelliJ / VSCode)
+.idea/
+*.iml
+.vscode/
+# Environment variables
+.env
+.env.test
+.env.local
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 # Dependencies & Configurations (tránh conflict cấu hình cá nhân)
 package.json
 package-lock.json
