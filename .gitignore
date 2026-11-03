@@ -27,3 +27,34 @@ yarn-debug.log
 .Trashes
 ehthumbs.db
 Thumbs.db
+# Dependencies & Configurations (tránh conflict cấu hình cá nhân)
+package.json
+package-lock.json
+playwright.config.js
+node_modules/
+
+# Chrome persistent profiles (session cá nhân của từng thành viên)
+**/.chrome_profile/
+.chrome_profile/
+
+# Playwright artifacts & test results
+test-results/
+playwright-report/
+blob-report/
+orders-debug.png
+*.png
+
+# Local helper scripts (tránh conflict giữa các thành viên)
+auth.js
+login.js
+mo-chrome-dang-nhap.bat
+*.bat
+
+# IDE & OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+
+# Environment variables
+.env
