@@ -22,6 +22,17 @@ yarn-debug.log
 .env.test
 .env.local
 
+# Python helper scripts
+*.py
+__pycache__/
+*.pyc
+
+# Test result JSON & Logs
+*_results.json
+*.log
+*.bak
+*.sh
+
 # OS generated files
 .DS_Store
 .DS_Store?

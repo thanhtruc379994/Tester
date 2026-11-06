@@ -59,11 +59,17 @@ function uniq(prefix = 'EditCat') {
     return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 }
 
-// Panel Display mặc định thu gọn: mở ra trước khi thao tác
+// Panel Display mặc định thu gọn hoặc cần chế độ Advanced: mở ra trước khi thao tác
 async function expandDisplay(page) {
-    const card = page.locator('.card[data-card-name="category-display"]');
+    const isAdv = await page.locator('#advanced-settings-mode').isChecked().catch(() => false);
+    if (!isAdv) {
+        await page.locator('.onoffswitch-label').click().catch(() => {});
+        await page.waitForTimeout(300);
+    }
+    const card = page.locator('.card[data-card-name="category-display"], #category-display');
     if (await card.evaluate(el => el.classList.contains('collapsed-card')).catch(() => false)) {
         await card.locator('.card-header').first().click();
+        await page.waitForTimeout(300);
     }
     await expect(card).not.toHaveClass(/collapsed-card/);
 }
@@ -131,7 +137,9 @@ async function deleteCategory(page, id) {
     const btn = page.locator('#category-delete');
     if (!(await btn.isVisible({timeout: 5000}).catch(() => false))) return;
     await btn.click();
-    await page.locator('#category-delete-confirmation button[type="submit"]').click();
+    const modal = page.locator('#categorymodel-Delete-delete-confirmation, #category-delete-confirmation');
+    await modal.waitFor({state: 'visible', timeout: 5000}).catch(() => {});
+    await modal.locator('button[type="submit"]').click();
     await page.waitForURL(/\/Admin\/Category\/List/i, {timeout: 30000});
 }
 
@@ -564,7 +572,9 @@ test.describe('Admin - Edit Category', () => {
             const c = await ctx.make();
             await openEdit(page, c.id);
             await page.locator('#category-delete').click();
-            await page.locator('#category-delete-confirmation button[type="submit"]').click();
+            const modal = page.locator('#categorymodel-Delete-delete-confirmation, #category-delete-confirmation');
+            await modal.waitFor({state: 'visible', timeout: 5000});
+            await modal.locator('button[type="submit"]:has-text("Delete"), button.btn-danger').click();
             await expect(page).toHaveURL(/\/Admin\/Category\/List/i, {timeout: 30000});
             await expectSaved(page);
             expect((await listRows(page, c.name)).length).toBe(0);
@@ -576,7 +586,9 @@ test.describe('Admin - Edit Category', () => {
             const c = await ctx.make();
             await openEdit(page, c.id);
             await page.locator('#category-delete').click();
-            await page.locator('#category-delete-confirmation [data-dismiss="modal"]').first().click();
+            const modal = page.locator('#categorymodel-Delete-delete-confirmation, #category-delete-confirmation');
+            await modal.waitFor({state: 'visible', timeout: 5000});
+            await modal.locator('[data-dismiss="modal"]').filter({hasText: 'No, cancel'}).click();
             await expect(page).toHaveURL(new RegExp(`/Admin/Category/Edit/${c.id}`, 'i'));
             await expect(page.locator('#Name')).toHaveValue(c.name);
             expect((await listRows(page, c.name)).length).toBe(1);
