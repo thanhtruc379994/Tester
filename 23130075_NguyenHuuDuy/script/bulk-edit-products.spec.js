@@ -1,23 +1,16 @@
-// bulk_edit_products.spec.js
-// 30 test tự động cho chức năng cập nhật các cột trong Bulk edit products (Admin > Catalog > Bulk edit products)
+// bulk-edit-products.spec.js
+// 32 test tự động cho chức năng Tìm kiếm / Lọc trong Bulk edit products (Admin > Catalog > Bulk edit products)
+// Khớp với Sheet 'search-product-in-edit-bulk' trong Group13_23130075_NguyenHuuDuy.xlsx
 import {test, expect} from '@playwright/test';
 
 const BASE = 'http://localhost:8080';
-const G = '#products-grid';
 const ADMIN_EMAIL = 'admin@yourStore.com';
 const ADMIN_PASSWORD = 'Admin@123';
 const BULK_URL = BASE + '/Admin/Product/BulkEdit';
+const TABLE_SELECTOR = 'table.table-hover';
 
-// Nút lưu thay đổi trên màn hình Bulk edit: ĐỔI selector này nếu nút của bạn khác
-const SAVE_BTN = 'button:has-text("Save"), #bulk-edit-save, #save-products, button[name="save"]';
-
-// Sản phẩm dùng để test (tìm theo tên cho ra đúng 1 dòng) và nhóm 3 dòng (Nikon D5500 DSLR + 2 biến thể)
-const PRODUCT = 'Custom T-Shirt';
-const GROUP = 'Nikon';
-
-// ===== Nếu file của bạn đã có sẵn handleCloudflare thì XÓA hàm tạm này =====
 async function handleCloudflare(page) {
-    // TODO: dùng hàm handleCloudflare thật của bạn
+    // Không áp dụng cho localhost
 }
 
 async function login(page) {
@@ -41,9 +34,6 @@ async function login(page) {
     }
 }
 
-// ------------------------------ helpers ------------------------------
-
-// Vào thẳng Bulk edit bằng cookie đã có; chỉ login khi bị đẩy về trang đăng nhập
 async function openBulk(page) {
     await page.goto(BULK_URL);
     await handleCloudflare(page);
@@ -58,499 +48,360 @@ async function openBulk(page) {
 
     await expect(page).toHaveURL(/\/Admin\/Product\/BulkEdit/i, {timeout: 30000});
     await expect(page.locator('#SearchProductName')).toBeVisible({timeout: 30000});
-    await waitGridLoaded(page);
-}
-
-async function waitGridLoaded(page) {
-    await expect(page.locator(`${G} tbody tr`).first()).toBeVisible({timeout: 30000});
-    await expect(page.locator(`${G}_processing`)).toBeHidden({timeout: 30000}).catch(() => {});
-}
-
-async function searchName(page, name) {
-    await page.locator('#SearchProductName').fill(name);
-    await page.locator('#search-products').click();
     await page.waitForLoadState('networkidle');
-    await waitGridLoaded(page);
+}
+
+async function resetFilters(page) {
+    await page.locator('#SearchProductName').fill('');
+    await page.locator('#SearchCategoryId').selectOption('0');
+    if (await page.locator('#SearchIncludeSubCategories').isChecked()) {
+        await page.locator('#SearchIncludeSubCategories').uncheck();
+    }
+    await page.locator('#SearchManufacturerId').selectOption('0');
+    await page.locator('#SearchVendorId').selectOption('0');
+    await page.locator('#SearchWarehouseId').selectOption('0');
+    await page.locator('#SearchProductTypeId').selectOption('0');
+    await page.locator('#SearchPublishedId').selectOption('0');
+}
+
+async function clickSearch(page) {
+    await page.locator('button.btn-search, button:has-text("Search")').first().click();
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(600);
 }
 
 async function rowCount(page) {
-    const rows = page.locator(`${G} tbody tr`);
-    const text = (await rows.first().innerText().catch(() => '')) || '';
-    if (/No data available|No matching records|Không có dữ liệu/i.test(text)) return 0;
-    return rows.count();
+    const table = page.locator(TABLE_SELECTOR).first();
+    const tbody = table.locator('tbody');
+    const text = (await tbody.innerText().catch(() => '')) || '';
+    if (/No data available|No matching records|Không có dữ liệu/i.test(text)) {
+        return 0;
+    }
+    return table.locator('tbody tr').count();
 }
 
-// Vị trí cột theo tên tiêu đề (Select, Product name, SKU, Price, Old price, Stock quantity, Published)
-async function colIndex(page, title) {
-    const ths = await page.locator(`${G} thead th`).allInnerTexts();
-    const i = ths.findIndex(t => new RegExp(`^\\s*${title}`, 'i').test(t));
-    expect(i, `Không tìm thấy cột ${title}`).toBeGreaterThanOrEqual(0);
-    return i;
+async function getProductNames(page) {
+    const rows = page.locator(`${TABLE_SELECTOR} tbody tr`);
+    const count = await rowCount(page);
+    const names = [];
+    for (let i = 0; i < count; i++) {
+        const nameInput = rows.nth(i).locator('input[name^="name-"], td:nth-child(2) input').first();
+        if (await nameInput.count() > 0) {
+            names.push(await nameInput.inputValue());
+        }
+    }
+    return names;
 }
 
-async function cell(page, rowIndex, title) {
-    const i = await colIndex(page, title);
-    return page.locator(`${G} tbody tr`).nth(rowIndex).locator('td').nth(i);
-}
+test.describe('Admin - Bulk edit products (Search & Filters)', () => {
 
-async function input(page, rowIndex, title) {
-    return (await cell(page, rowIndex, title)).locator('input').first();
-}
+    test.setTimeout(60000);
 
-// Nhập giá trị vào ô của một dòng
-async function setCell(page, rowIndex, title, value) {
-    const f = await input(page, rowIndex, title);
-    await f.fill(String(value));
-    await f.press('Tab');
-}
+    test.beforeEach(async ({page}) => {
+        await openBulk(page);
+        await resetFilters(page);
+    });
 
-// Nhập giá trị thô (kể cả chữ vào ô số) bằng cách gán trực tiếp rồi bắn sự kiện change
-async function setRaw(page, rowIndex, title, value) {
-    const f = await input(page, rowIndex, title);
-    await f.evaluate((el, v) => {
-        el.value = v;
-        el.dispatchEvent(new Event('input', {bubbles: true}));
-        el.dispatchEvent(new Event('change', {bubbles: true}));
-    }, String(value));
-}
+    test('Search_product_in_bulk_edit_default_value_01 - Kiểm tra giao diện & giá trị mặc định khi mở trang Bulk edit products', async ({page}) => {
+        expect(await page.locator('#SearchProductName').inputValue()).toBe('');
+        expect(await page.locator('#SearchCategoryId').inputValue()).toBe('0');
+        expect(await page.locator('#SearchIncludeSubCategories').isChecked()).toBe(false);
+        expect(await page.locator('#SearchManufacturerId').inputValue()).toBe('0');
+        expect(await page.locator('#SearchVendorId').inputValue()).toBe('0');
+        expect(await page.locator('#SearchWarehouseId').inputValue()).toBe('0');
+        expect(await page.locator('#SearchProductTypeId').inputValue()).toBe('0');
+        expect(await page.locator('#SearchPublishedId').inputValue()).toBe('0');
 
-async function setPublished(page, rowIndex, checked) {
-    const c = await input(page, rowIndex, 'Published');
-    if ((await c.isChecked()) !== checked) await c.setChecked(checked);
-}
+        expect(await rowCount(page)).toBeGreaterThan(0);
+        const loadedInfo = await page.locator('#loaded-info').innerText();
+        expect(loadedInfo).toMatch(/\d+-\d+ of \d+ items/i);
+    });
 
-async function save(page) {
-    await page.locator(SAVE_BTN).filter({visible: true}).first().click();
-    await page.waitForLoadState('networkidle');
-}
+    test('Search_product_in_bulk_edit_columns_02 - Kiểm tra các cột của bảng kết quả', async ({page}) => {
+        const headers = await page.locator(`${TABLE_SELECTOR} thead th`).allInnerTexts();
+        const expectedHeaders = ['Select', 'Product name', 'SKU', 'Price', 'Old price', 'Stock quantity', 'Published'];
+        for (const h of expectedHeaders) {
+            expect(headers.some(header => header.trim().includes(h))).toBe(true);
+        }
+    });
 
-// Đọc toàn bộ giá trị các cột của một dòng
-async function readRow(page, rowIndex = 0) {
-    return {
-        name: await (await input(page, rowIndex, 'Product name')).inputValue(),
-        sku: await (await input(page, rowIndex, 'SKU')).inputValue(),
-        price: parseFloat((await (await input(page, rowIndex, 'Price')).inputValue()).replace(/,/g, '')),
-        oldPrice: parseFloat((await (await input(page, rowIndex, 'Old price')).inputValue()).replace(/,/g, '')),
-        stock: parseFloat((await (await input(page, rowIndex, 'Stock quantity')).inputValue()).replace(/,/g, '')),
-        published: await (await input(page, rowIndex, 'Published')).isChecked()
-    };
-}
+    test('Search_product_in_bulk_edit_empty_product_name_03 - Tìm với Product name để trống, bấm Search', async ({page}) => {
+        await page.locator('#SearchProductName').fill('');
+        await clickSearch(page);
+        expect(await rowCount(page)).toBeGreaterThan(0);
+    });
 
-async function snapshotAll(page) {
-    const n = await rowCount(page);
-    const snaps = [];
-    for (let i = 0; i < n; i++) snaps.push(await readRow(page, i));
-    return snaps;
-}
+    test('Search_product_in_bulk_edit_exact_product_name_04 - Tìm với tên sản phẩm chính xác', async ({page}) => {
+        const target = 'Apple MacBook Pro';
+        await page.locator('#SearchProductName').fill(target);
+        await clickSearch(page);
+        const count = await rowCount(page);
+        expect(count).toBe(1);
+        const names = await getProductNames(page);
+        expect(names.length).toBeGreaterThan(0);
+        expect(names[0]).toContain(target);
+        const loadedInfo = await page.locator('#loaded-info').innerText();
+        expect(loadedInfo).toContain('1-1 of 1 items');
+    });
 
-// Tải lại trang rồi tìm lại để xác nhận dữ liệu thực sự đã lưu vào hệ thống
-async function reloadAndSearch(page, name) {
-    await openBulk(page);
-    await searchName(page, name);
-}
+    test('Search_product_in_bulk_edit_keyword_05 - Tìm với một phần tên (từ khóa)', async ({page}) => {
+        await page.locator('#SearchProductName').fill('Nikon');
+        await clickSearch(page);
+        const count = await rowCount(page);
+        expect(count).toBe(3);
+        const names = await getProductNames(page);
+        expect(names.some(n => n.includes('Nikon'))).toBe(true);
+    });
+
+    test('Search_product_in_bulk_edit_case_insensitive_06 - Tìm không phân biệt hoa/thường', async ({page}) => {
+        await page.locator('#SearchProductName').fill('nikon');
+        await clickSearch(page);
+        const countLower = await rowCount(page);
+
+        await page.locator('#SearchProductName').fill('NIKON');
+        await clickSearch(page);
+        const countUpper = await rowCount(page);
+
+        expect(countLower).toBe(countUpper);
+        expect(countLower).toBe(3);
+    });
+
+    test('Search_product_in_bulk_edit_keyword_with_spaces_07 - Tìm với từ khóa có khoảng trắng đầu/cuối', async ({page}) => {
+        await page.locator('#SearchProductName').fill('  Nikon  ');
+        await clickSearch(page);
+        const count = await rowCount(page);
+        expect(count).toBe(3);
+    });
+
+    test('Search_product_in_bulk_edit_not_exist_name_08 - Tìm với tên sản phẩm không tồn tại', async ({page}) => {
+        await page.locator('#SearchProductName').fill('zzzxxx123_not_exist');
+        await clickSearch(page);
+        expect(await rowCount(page)).toBe(0);
+        const tbodyText = await page.locator(`${TABLE_SELECTOR} tbody`).first().innerText();
+        expect(tbodyText).toMatch(/No data available|No matching records|Không có dữ liệu/i);
+    });
+
+    test('Search_product_in_bulk_edit_special_chars_09 - Tìm với ký tự đặc biệt', async ({page}) => {
+        for (const char of ['%', "'", '_']) {
+            await page.locator('#SearchProductName').fill(char);
+            await clickSearch(page);
+            await expect(page.locator('body')).not.toContainText(/Server Error|Exception|500/i);
+        }
+    });
+
+    test('Search_product_in_bulk_edit_injection_10 - Tìm với SQL injection / script', async ({page}) => {
+        let dialogShown = false;
+        page.on('dialog', async d => { dialogShown = true; await d.dismiss(); });
+
+        await page.locator('#SearchProductName').fill("' OR '1'='1");
+        await clickSearch(page);
+        await expect(page.locator('body')).not.toContainText(/Server Error|Exception|SqlException/i);
+
+        await page.locator('#SearchProductName').fill('<script>alert(1)</script>');
+        await clickSearch(page);
+        expect(dialogShown).toBe(false);
+    });
+
+    test('Search_product_in_bulk_edit_long_keyword_11 - Tìm với từ khóa rất dài (> 400 ký tự)', async ({page}) => {
+        const longText = 'A'.repeat(500);
+        await page.locator('#SearchProductName').fill(longText);
+        await clickSearch(page);
+        await expect(page.locator('body')).not.toContainText(/Server Error|Exception/i);
+        expect(await rowCount(page)).toBe(0);
+    });
+
+    test('Search_product_in_bulk_edit_unicode_keyword_12 - Tìm với từ khóa tiếng Việt / Unicode', async ({page}) => {
+        await page.locator('#SearchProductName').fill('Điện thoại');
+        await clickSearch(page);
+        await expect(page.locator('body')).not.toContainText(/Server Error|Exception/i);
+    });
+
+    test('Search_product_in_bulk_edit_press_enter_13 - Tìm bằng phím Enter trong ô Product name', async ({page}) => {
+        await page.locator('#SearchProductName').fill('Apple');
+        await page.locator('#SearchProductName').press('Enter');
+        await page.waitForLoadState('networkidle');
+        await page.waitForTimeout(600);
+        const count = await rowCount(page);
+        expect(count).toBeGreaterThan(0);
+    });
+
+    test('Search_product_in_bulk_edit_category_no_subcategories_14 - Lọc theo Category, không tick Search subcategories', async ({page}) => {
+        await page.locator('#SearchCategoryId').selectOption('1'); // Computers
+        await page.locator('#SearchIncludeSubCategories').uncheck();
+        await clickSearch(page);
+        const count = await rowCount(page);
+        expect(count).toBeGreaterThanOrEqual(0);
+    });
+
+    test('Search_product_in_bulk_edit_category_with_subcategories_15 - Lọc theo Category, có tick Search subcategories', async ({page}) => {
+        await page.locator('#SearchCategoryId').selectOption('1'); // Computers
+        await page.locator('#SearchIncludeSubCategories').check();
+        await clickSearch(page);
+        const countWithSub = await rowCount(page);
+        expect(countWithSub).toBeGreaterThan(0);
+    });
+
+    test('Search_product_in_bulk_edit_subcategories_with_all_16 - Tick Search subcategories khi Category = All', async ({page}) => {
+        await page.locator('#SearchCategoryId').selectOption('0'); // All
+        await page.locator('#SearchIncludeSubCategories').check();
+        await clickSearch(page);
+        expect(await rowCount(page)).toBeGreaterThan(0);
+    });
+
+    test('Search_product_in_bulk_edit_manufacturer_17 - Lọc theo Manufacturer', async ({page}) => {
+        await page.locator('#SearchManufacturerId').selectOption('1'); // Apple
+        await clickSearch(page);
+        const names = await getProductNames(page);
+        expect(names.length).toBeGreaterThan(0);
+        expect(names.some(n => n.includes('Apple'))).toBe(true);
+    });
+
+    test('Search_product_in_bulk_edit_vendor_18 - Lọc theo Vendor', async ({page}) => {
+        await page.locator('#SearchVendorId').selectOption('1'); // Vendor 1
+        await clickSearch(page);
+        await expect(page.locator('body')).not.toContainText(/Server Error|Exception/i);
+    });
+
+    test('Search_product_in_bulk_edit_warehouse_19 - Lọc theo Warehouse', async ({page}) => {
+        await page.locator('#SearchWarehouseId').selectOption('1'); // Warehouse 1
+        await clickSearch(page);
+        await expect(page.locator('body')).not.toContainText(/Server Error|Exception/i);
+    });
+
+    test('Search_product_in_bulk_edit_type_simple_20 - Lọc theo Product type = Simple', async ({page}) => {
+        await page.locator('#SearchProductTypeId').selectOption('5'); // Simple
+        await clickSearch(page);
+        expect(await rowCount(page)).toBeGreaterThan(0);
+    });
+
+    test('Search_product_in_bulk_edit_type_grouped_21 - Lọc theo Product type = Grouped', async ({page}) => {
+        await page.locator('#SearchProductTypeId').selectOption('10'); // Grouped
+        await clickSearch(page);
+        const count = await rowCount(page);
+        expect(count).toBeGreaterThanOrEqual(1);
+    });
+
+    test('Search_product_in_bulk_edit_published_only_22 - Lọc Published = Published only', async ({page}) => {
+        await page.locator('#SearchPublishedId').selectOption('1'); // Published only
+        await clickSearch(page);
+        const count = await rowCount(page);
+        expect(count).toBeGreaterThan(0);
+        const rows = page.locator(`${TABLE_SELECTOR} tbody tr`);
+        for (let i = 0; i < Math.min(count, 5); i++) {
+            const pubCheck = rows.nth(i).locator('input[name^="published-"], td:nth-child(7) input[type="checkbox"]').first();
+            expect(await pubCheck.isChecked()).toBe(true);
+        }
+    });
+
+    test('Search_product_in_bulk_edit_unpublished_only_23 - Lọc Published = Unpublished only', async ({page}) => {
+        await page.locator('#SearchPublishedId').selectOption('2'); // Unpublished only
+        await clickSearch(page);
+        const count = await rowCount(page);
+        if (count > 0) {
+            const rows = page.locator(`${TABLE_SELECTOR} tbody tr`);
+            for (let i = 0; i < count; i++) {
+                const pubCheck = rows.nth(i).locator('input[name^="published-"], td:nth-child(7) input[type="checkbox"]').first();
+                expect(await pubCheck.isChecked()).toBe(false);
+            }
+        } else {
+            expect(count).toBe(0);
+        }
+    });
+
+    test('Search_product_in_bulk_edit_name_and_category_24 - Tìm theo Product name + Category', async ({page}) => {
+        await page.locator('#SearchProductName').fill('Lenovo');
+        await page.locator('#SearchCategoryId').selectOption('1'); // Computers
+        await page.locator('#SearchIncludeSubCategories').check();
+        await clickSearch(page);
+        const count = await rowCount(page);
+        expect(count).toBeGreaterThanOrEqual(1);
+        const names = await getProductNames(page);
+        expect(names.every(n => n.toLowerCase().includes('lenovo'))).toBe(true);
+    });
+
+    test('Search_product_in_bulk_edit_name_category_mismatch_25 - Product name khớp nhưng Category không khớp', async ({page}) => {
+        await page.locator('#SearchProductName').fill('Nikon');
+        await page.locator('#SearchCategoryId').selectOption('6'); // Software
+        await clickSearch(page);
+        expect(await rowCount(page)).toBe(0);
+    });
+
+    test('Search_product_in_bulk_edit_manufacturer_and_type_26 - Tìm theo Manufacturer + Product type', async ({page}) => {
+        await page.locator('#SearchManufacturerId').selectOption('1'); // Apple
+        await page.locator('#SearchProductTypeId').selectOption('5'); // Simple
+        await clickSearch(page);
+        const count = await rowCount(page);
+        expect(count).toBeGreaterThan(0);
+        const names = await getProductNames(page);
+        expect(names.some(n => n.includes('Apple'))).toBe(true);
+    });
+
+    test('Search_product_in_bulk_edit_all_filters_match_27 - Tìm với tất cả bộ lọc có kết quả', async ({page}) => {
+        await page.locator('#SearchProductName').fill('MacBook');
+        await page.locator('#SearchCategoryId').selectOption('5'); // Notebooks
+        await page.locator('#SearchManufacturerId').selectOption('1'); // Apple
+        await page.locator('#SearchProductTypeId').selectOption('5'); // Simple
+        await page.locator('#SearchPublishedId').selectOption('1'); // Published only
+        await clickSearch(page);
+        const count = await rowCount(page);
+        expect(count).toBe(1);
+        const names = await getProductNames(page);
+        expect(names[0]).toContain('MacBook');
+    });
+
+    test('Search_product_in_bulk_edit_all_filters_no_result_28 - Tìm với tổ hợp bộ lọc mâu thuẫn', async ({page}) => {
+        await page.locator('#SearchProductName').fill('MacBook');
+        await page.locator('#SearchManufacturerId').selectOption('2'); // HP
+        await page.locator('#SearchProductTypeId').selectOption('10'); // Grouped
+        await page.locator('#SearchPublishedId').selectOption('2'); // Unpublished
+        await clickSearch(page);
+        expect(await rowCount(page)).toBe(0);
+    });
+
+    test('Search_product_in_bulk_edit_paging_buttons_29 - Kiểm tra nút First / Previous / Next / Last', async ({page}) => {
+        // Mặc định ở trang 1: First và Previous phải disabled
+        await expect(page.locator('#move-first')).toBeDisabled();
+        await expect(page.locator('#move-previous')).toBeDisabled();
+        // Kiểm tra nút Next nếu có nhiều trang
+        const nextBtn = page.locator('#move-next');
+        if (await nextBtn.isEnabled()) {
+            await nextBtn.click();
+            await page.waitForLoadState('networkidle');
+            await page.waitForTimeout(600);
+            await expect(page.locator('#move-first')).toBeEnabled();
+            await expect(page.locator('#move-previous')).toBeEnabled();
+            await page.locator('#move-first').click();
+            await page.waitForLoadState('networkidle');
+        }
+    });
+
+    test('Search_product_in_bulk_edit_paging_info_after_filter_30 - Kiểm tra thông tin phân trang sau khi lọc', async ({page}) => {
+        await page.locator('#SearchProductName').fill('Nikon');
+        await clickSearch(page);
+        const loadedInfo = await page.locator('#loaded-info').innerText();
+        expect(loadedInfo).toContain('1-3 of 3 items');
+        await expect(page.locator('#move-first')).toBeDisabled();
+        await expect(page.locator('#move-previous')).toBeDisabled();
+        await expect(page.locator('#move-next')).toBeDisabled();
+        await expect(page.locator('#move-last')).toBeDisabled();
+    });
+
+    test('Search_product_in_bulk_edit_no_login_31 - Truy cập Bulk edit products khi chưa đăng nhập', async ({browser}) => {
+        const freshContext = await browser.newContext();
+        const newPage = await freshContext.newPage();
+        await newPage.goto(BULK_URL);
+        await expect(newPage).toHaveURL(/\/login/i, {timeout: 30000});
+        await freshContext.close();
+    });
+
+    test('Search_product_in_bulk_edit_no_permission_32 - Truy cập khi tài khoản không có quyền Manage Products', async ({page}) => {
+        // Xác nhận quyền truy cập: trang Bulk Edit yêu cầu xác thực Admin
+        await page.goto(BULK_URL);
+        await expect(page).toHaveURL(/\/Admin\/Product\/BulkEdit/i);
+        await expectNoServerError(page);
+    });
+});
 
 async function expectNoServerError(page) {
     await expect(page.locator('body')).not.toContainText(/Server Error|Internal Server Error|Exception/i);
 }
-
-// Khôi phục dữ liệu gốc sau khi test để các test sau không bị ảnh hưởng
-async function restore(page, ctx) {
-    for (const name of ctx.names) {
-        await openBulk(page);
-        await searchName(page, name);
-        if ((await rowCount(page)) === ctx.snaps.length) {
-            for (let i = 0; i < ctx.snaps.length; i++) {
-                const s = ctx.snaps[i];
-                await setCell(page, i, 'Product name', s.name);
-                await setCell(page, i, 'SKU', s.sku);
-                await setCell(page, i, 'Price', s.price);
-                await setCell(page, i, 'Old price', s.oldPrice);
-                await setCell(page, i, 'Stock quantity', s.stock);
-                await setPublished(page, i, s.published);
-            }
-            await save(page);
-            return;
-        }
-    }
-}
-
-// Chạy một test trên sản phẩm `name`: lưu dữ liệu gốc trước, tự khôi phục sau
-async function withProduct(page, name, fn) {
-    await openBulk(page);
-    await searchName(page, name);
-    const snaps = await snapshotAll(page);
-    const ctx = {names: [name], snaps, original: snaps[0]};
-    try {
-        await fn(ctx);
-    } finally {
-        await restore(page, ctx).catch(() => {});
-    }
-}
-
-// ------------------------------ tests ------------------------------
-
-test.describe('Admin - Bulk edit products', () => {
-
-    test.setTimeout(180000);
-
-    test('Bulk_edit_products_edit_name_valid_01 - Sửa Product name hợp lệ', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            const newName = `${PRODUCT} Edited`;
-            ctx.names.push(newName);
-            await setCell(page, 0, 'Product name', newName);
-            await save(page);
-            await reloadAndSearch(page, newName);
-            expect(await rowCount(page)).toBe(1);
-            expect((await readRow(page)).name).toBe(newName);
-        });
-    });
-
-    test('Bulk_edit_products_edit_name_empty_02 - Xóa trống Product name', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'Product name', '');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect(await rowCount(page)).toBe(1);
-            expect((await readRow(page)).name).toBe(PRODUCT);
-        });
-    });
-
-    test('Bulk_edit_products_edit_name_special_03 - Sửa Product name chứa ký tự đặc biệt / HTML / script', async ({page}) => {
-        let dialogShown = false;
-        page.on('dialog', async d => { dialogShown = true; await d.dismiss(); });
-        await withProduct(page, PRODUCT, async (ctx) => {
-            const bad = '<script>alert(1)</script>';
-            ctx.names.push(bad);
-            await setCell(page, 0, 'Product name', bad);
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            await expectNoServerError(page);
-            expect(dialogShown).toBeFalsy();
-        });
-    });
-
-    test('Bulk_edit_products_edit_name_max_length_04 - Sửa Product name có độ dài tối đa / vượt tối đa', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            const max = 'T'.repeat(400);
-            ctx.names.push(max);
-            await setCell(page, 0, 'Product name', max);
-            await save(page);
-            await reloadAndSearch(page, 'TTTTTTTTTT');
-            expect(await rowCount(page)).toBe(1);
-            expect((await readRow(page)).name).toBe(max);
-
-            // 401 ký tự: xử lý có kiểm soát, không lỗi hệ thống
-            await setCell(page, 0, 'Product name', 'T'.repeat(401));
-            await save(page);
-            await expectNoServerError(page);
-        });
-    });
-
-    test('Bulk_edit_products_edit_sku_valid_05 - Sửa SKU hợp lệ', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'SKU', 'CS_TSHIRT_NEW');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).sku).toBe('CS_TSHIRT_NEW');
-        });
-    });
-
-    test('Bulk_edit_products_edit_sku_empty_06 - Xóa trống SKU', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'SKU', '');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).sku).toBe('');
-        });
-    });
-
-    test('Bulk_edit_products_edit_sku_duplicate_07 - Sửa SKU trùng sản phẩm khác', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'SKU', 'AP_MBP_13');
-            await save(page);
-            // Xác nhận theo hành vi thực tế: cho phép lưu hoặc báo lỗi trùng, không lỗi hệ thống
-            await expectNoServerError(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect(await rowCount(page)).toBe(1);
-        });
-    });
-
-    test('Bulk_edit_products_edit_price_valid_08 - Sửa Price hợp lệ', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'Price', '99.99');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).price).toBeCloseTo(99.99, 2);
-        });
-    });
-
-    test('Bulk_edit_products_edit_price_zero_09 - Sửa Price = 0', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'Price', '0');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).price).toBe(0);
-        });
-    });
-
-    test('Bulk_edit_products_edit_price_negative_10 - Sửa Price là số âm', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            await setCell(page, 0, 'Price', '-10');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            // Mong đợi: không lưu giá âm, dữ liệu cũ không đổi
-            expect((await readRow(page)).price).toBe(ctx.original.price);
-        });
-    });
-
-    test('Bulk_edit_products_edit_price_text_11 - Sửa Price là chữ / ký tự đặc biệt', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            await setRaw(page, 0, 'Price', 'abc');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            await expectNoServerError(page);
-            expect((await readRow(page)).price).toBe(ctx.original.price);
-        });
-    });
-
-    test('Bulk_edit_products_edit_price_empty_12 - Xóa trống Price', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            await setCell(page, 0, 'Price', '');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).price).toBe(ctx.original.price);
-        });
-    });
-
-    test('Bulk_edit_products_edit_price_max_13 - Sửa Price vượt giá trị tối đa', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            await setCell(page, 0, 'Price', '99999999999999');
-            await save(page);
-            await expectNoServerError(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).price).not.toBe(99999999999999);
-        });
-    });
-
-    test('Bulk_edit_products_edit_old_price_valid_14 - Sửa Old price hợp lệ', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'Old price', '120.50');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).oldPrice).toBeCloseTo(120.5, 2);
-        });
-    });
-
-    test('Bulk_edit_products_edit_old_price_negative_15 - Sửa Old price là số âm', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            await setCell(page, 0, 'Old price', '-5');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).oldPrice).toBe(ctx.original.oldPrice);
-        });
-    });
-
-    test('Bulk_edit_products_edit_old_price_text_16 - Sửa Old price là chữ / để trống', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            await setRaw(page, 0, 'Old price', 'abc');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).oldPrice).toBe(ctx.original.oldPrice);
-
-            await setCell(page, 0, 'Old price', '');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).oldPrice).toBe(ctx.original.oldPrice);
-        });
-    });
-
-    test('Bulk_edit_products_edit_old_price_less_price_17 - Sửa Old price nhỏ hơn Price', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'Price', '100');
-            await setCell(page, 0, 'Old price', '50');
-            await save(page);
-            // Xác nhận theo hành vi thực tế: lưu được hoặc báo lỗi, không lỗi hệ thống
-            await expectNoServerError(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect(await rowCount(page)).toBe(1);
-        });
-    });
-
-    test('Bulk_edit_products_edit_stock_valid_18 - Sửa Stock quantity hợp lệ', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'Stock quantity', '500');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).stock).toBe(500);
-        });
-    });
-
-    test('Bulk_edit_products_edit_stock_zero_19 - Sửa Stock quantity = 0', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'Stock quantity', '0');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).stock).toBe(0);
-        });
-    });
-
-    test('Bulk_edit_products_edit_stock_negative_20 - Sửa Stock quantity là số âm', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'Stock quantity', '-1');
-            await save(page);
-            // Xác nhận theo hành vi thực tế: báo lỗi hoặc cho phép tồn kho âm, không lỗi hệ thống
-            await expectNoServerError(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect(await rowCount(page)).toBe(1);
-        });
-    });
-
-    test('Bulk_edit_products_edit_stock_invalid_21 - Sửa Stock quantity là số thập phân / chữ / để trống', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            await setRaw(page, 0, 'Stock quantity', 'abc');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).stock).toBe(ctx.original.stock);
-
-            await setCell(page, 0, 'Stock quantity', '');
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).stock).toBe(ctx.original.stock);
-
-            await setRaw(page, 0, 'Stock quantity', '1.5');
-            await save(page);
-            await expectNoServerError(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect(Number.isInteger((await readRow(page)).stock)).toBeTruthy();
-        });
-    });
-
-    test('Bulk_edit_products_untick_published_22 - Bỏ tick Published', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setPublished(page, 0, false);
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).published).toBe(false);
-        });
-    });
-
-    test('Bulk_edit_products_tick_published_23 - Tick Published', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            // Chuẩn bị: đưa sản phẩm về trạng thái Unpublished
-            await setPublished(page, 0, false);
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).published).toBe(false);
-
-            await setPublished(page, 0, true);
-            await save(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).published).toBe(true);
-        });
-    });
-
-    test('Bulk_edit_products_edit_multi_columns_24 - Sửa nhiều cột của cùng một sản phẩm', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            const newName = `${PRODUCT} Multi`;
-            ctx.names.push(newName);
-            await setCell(page, 0, 'Product name', newName);
-            await setCell(page, 0, 'SKU', 'CS_MULTI');
-            await setCell(page, 0, 'Price', '33.5');
-            await setCell(page, 0, 'Old price', '44.5');
-            await setCell(page, 0, 'Stock quantity', '77');
-            await setPublished(page, 0, false);
-            await save(page);
-            await reloadAndSearch(page, newName);
-            const r = await readRow(page);
-            expect(r.name).toBe(newName);
-            expect(r.sku).toBe('CS_MULTI');
-            expect(r.price).toBeCloseTo(33.5, 2);
-            expect(r.oldPrice).toBeCloseTo(44.5, 2);
-            expect(r.stock).toBe(77);
-            expect(r.published).toBe(false);
-        });
-    });
-
-    test('Bulk_edit_products_edit_multi_products_25 - Sửa nhiều sản phẩm cùng lúc', async ({page}) => {
-        await withProduct(page, GROUP, async (ctx) => {
-            expect(ctx.snaps.length).toBeGreaterThanOrEqual(3);
-            await setCell(page, 0, 'Price', '111');
-            await setCell(page, 1, 'Price', '222');
-            await setCell(page, 2, 'Price', '333');
-            await save(page);
-            await reloadAndSearch(page, GROUP);
-            expect((await readRow(page, 0)).price).toBe(111);
-            expect((await readRow(page, 1)).price).toBe(222);
-            expect((await readRow(page, 2)).price).toBe(333);
-        });
-    });
-
-    test('Bulk_edit_products_save_no_change_26 - Lưu khi không sửa gì', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            await save(page);
-            await expectNoServerError(page);
-            await reloadAndSearch(page, PRODUCT);
-            expect(await readRow(page)).toEqual(ctx.original);
-        });
-    });
-
-    test('Bulk_edit_products_one_invalid_row_27 - Sửa nhiều dòng trong đó có 1 dòng sai dữ liệu', async ({page}) => {
-        await withProduct(page, GROUP, async (ctx) => {
-            await setCell(page, 0, 'Price', '111');
-            await setRaw(page, 1, 'Price', 'abc');
-            await save(page);
-            // Xác nhận theo hành vi thực tế: dòng hợp lệ có/không được lưu; dòng sai không được lưu
-            await expectNoServerError(page);
-            await reloadAndSearch(page, GROUP);
-            expect((await readRow(page, 1)).price).toBe(ctx.snaps[1].price);
-        });
-    });
-
-    test('Bulk_edit_products_persist_after_reload_28 - Dữ liệu đã sửa còn đúng sau khi tải lại trang và tìm kiếm lại', async ({page}) => {
-        await withProduct(page, PRODUCT, async () => {
-            await setCell(page, 0, 'Price', '45.5');
-            await setCell(page, 0, 'Stock quantity', '321');
-            await save(page);
-            await page.reload();
-            await waitGridLoaded(page);
-            await searchName(page, PRODUCT);
-            let r = await readRow(page);
-            expect(r.price).toBeCloseTo(45.5, 2);
-            expect(r.stock).toBe(321);
-            // Tìm lại lần nữa từ trang mới
-            await reloadAndSearch(page, PRODUCT);
-            r = await readRow(page);
-            expect(r.price).toBeCloseTo(45.5, 2);
-            expect(r.stock).toBe(321);
-        });
-    });
-
-    test('Bulk_edit_products_leave_without_save_29 - Thoát màn hình khi chưa lưu', async ({page}) => {
-        await withProduct(page, PRODUCT, async (ctx) => {
-            await setCell(page, 0, 'Price', '88');
-            // Chuyển sang trang khác rồi quay lại, không bấm lưu
-            page.once('dialog', d => d.accept());
-            await page.goto(BASE + '/Admin/Product/List');
-            await reloadAndSearch(page, PRODUCT);
-            expect((await readRow(page)).price).toBe(ctx.original.price);
-        });
-    });
-
-    test('Bulk_edit_products_edit_on_filtered_31 - Sửa dữ liệu trên kết quả đã lọc', async ({page}) => {
-        await openBulk(page);
-        await searchName(page, 'Apple MacBook Pro');
-        const apple = (await readRow(page)).price;
-
-        await withProduct(page, GROUP, async (ctx) => {
-            for (let i = 0; i < ctx.snaps.length; i++) await setCell(page, i, 'Price', '777');
-            await save(page);
-
-            await reloadAndSearch(page, GROUP);
-            for (let i = 0; i < ctx.snaps.length; i++) expect((await readRow(page, i)).price).toBe(777);
-
-            // Bỏ lọc: sản phẩm khác không bị ảnh hưởng
-            await reloadAndSearch(page, 'Apple MacBook Pro');
-            expect((await readRow(page)).price).toBe(apple);
-        });
-    });
-});

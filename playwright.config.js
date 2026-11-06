@@ -1,11 +1,13 @@
 const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({
+    timeout: 30000,
     use: {
         headless: false,
         channel: 'chrome',
+        actionTimeout: 15000,
         launchOptions: {
-            slowMo: 500
+            slowMo: 300
         }
     },
     workers: 1,

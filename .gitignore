@@ -20,8 +20,20 @@ auth.js
 login.js
 mo-chrome-dang-nhap.bat
 *.bat
+*.sh
 
-# IDE & OS
+# Python helper scripts
+*.py
+__pycache__/
+*.pyc
+
+# Test result JSON & Logs
+*_results.json
+*.log
+*.bak
+
+# Environment variables
+.env
 .idea/
 .vscode/
 Thumbs.db
